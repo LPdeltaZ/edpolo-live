@@ -7,9 +7,9 @@
   <!-- PeerJS WebRTC Global Cloud -->
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
     body { background-color: #0b1120; color: #f8fafc; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 16px; }
-    .card { background: #131c2e; border-radius: 14px; padding: 20px; max-width: 960px; width: 100%; box-shadow: 0 10px 35px rgba(0,0,0,0.6); }
+    .card { background: #131c2e; border-radius: 16px; padding: 20px; max-width: 900px; width: 100%; box-shadow: 0 10px 35px rgba(0,0,0,0.6); }
     header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
     h1 { font-size: 1.3rem; color: #38bdf8; display: flex; align-items: center; gap: 8px; }
     .badge { padding: 4px 12px; border-radius: 9999px; font-weight: 700; font-size: 0.8rem; }
@@ -18,11 +18,28 @@
     .badge.live { background: #dc2626; color: white; animation: pulse 2s infinite; }
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
 
-    .player-wrap { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 10px; overflow: hidden; display: flex; justify-content: center; align-items: center; border: 1px solid #1e293b; }
+    .player-wrap { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 12px; overflow: hidden; display: flex; justify-content: center; align-items: center; border: 1px solid #1e293b; cursor: pointer; }
     video { width: 100%; height: 100%; object-fit: contain; }
-    .overlay { position: absolute; text-align: center; color: #94a3b8; padding: 20px; }
-    .btn-audio { margin-top: 14px; background: #0284c7; color: white; border: none; padding: 12px 22px; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; display: none; }
-    .btn-audio:hover { background: #0369a1; }
+    .overlay { position: absolute; text-align: center; color: #94a3b8; padding: 20px; pointer-events: none; }
+    
+    /* Botão flutuante para desmutar estilo TikTok / Instagram */
+    .unmute-banner {
+      margin-top: 14px;
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      color: white;
+      border: none;
+      padding: 14px 24px;
+      border-radius: 10px;
+      font-size: 1.05rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4);
+      animation: bounce 1.5s infinite;
+    }
+    @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
   </style>
 </head>
 <body>
@@ -33,16 +50,19 @@
       <div id="statusBadge" class="badge connecting">Conectando...</div>
     </header>
 
-    <div class="player-wrap">
+    <div class="player-wrap" id="playerWrap" onclick="enableAudio()">
       <div id="overlayMessage" class="overlay">
         <p id="mainText" style="font-size: 1.15rem; font-weight: 600; color: #e2e8f0; margin-bottom: 6px;">Procurando transmissão...</p>
-        <span id="subText" style="font-size: 0.85rem; color: #64748b;">Aguardando o transmissor iniciar o compartilhamento de tela.</span>
+        <span id="subText" style="font-size: 0.85rem; color: #64748b;">Aguardando o transmissor iniciar.</span>
       </div>
+      <!-- playsinline e sem atributo muted forçado no DOM -->
       <video id="remoteVideo" autoplay playsinline></video>
     </div>
 
     <center>
-      <button id="unmuteBtn" class="btn-audio">🔊 Clique para Ativar o Áudio</button>
+      <button id="unmuteBtn" class="unmute-banner" onclick="enableAudio()">
+        🔊 O Áudio está mudo pelo navegador — Clique aqui para ouvir
+      </button>
     </center>
   </div>
 
@@ -54,15 +74,28 @@
     const subText = document.getElementById('subText');
     const unmuteBtn = document.getElementById('unmuteBtn');
 
-    // Extrai o ID da sala pela URL (?room=xyz)
     const urlParams = new URLSearchParams(window.location.search);
     const targetRoom = urlParams.get('room');
+
+    let isAudioActive = false;
+
+    function enableAudio() {
+      remoteVideo.muted = false;
+      remoteVideo.volume = 1.0;
+      remoteVideo.play().then(() => {
+        isAudioActive = true;
+        unmuteBtn.style.display = 'none';
+      }).catch(err => {
+        console.warn('Erro ao reproduzir com som:', err);
+      });
+    }
 
     if (!targetRoom) {
       statusBadge.className = 'badge offline';
       statusBadge.textContent = 'Link Inválido';
-      mainText.textContent = 'Nenhuma sala especificada no link';
-      subText.textContent = 'Peça ao transmissor para enviar o link completo da transmissão.';
+      mainText.textContent = 'Nenhuma sala especificada';
+      subText.textContent = 'Abra o link completo enviado pelo transmissor.';
+      unmuteBtn.style.display = 'none';
     } else {
       const peer = new Peer({
         debug: 1,
@@ -89,11 +122,19 @@
       statusBadge.className = 'badge connecting';
       statusBadge.textContent = 'Chamando Transmissor...';
 
-      // Cria uma stream falsa em silêncio para iniciar o handshake WebRTC bidirecional
+      // Cria uma track de áudio silenciosa para forçar a negociação correta de áudio do WebRTC
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const dst = ctx.createMediaStreamDestination();
+      osc.connect(dst);
+      osc.start();
+      const dummyAudioTrack = dst.stream.getAudioTracks()[0];
+
       const dummyCanvas = document.createElement('canvas');
       dummyCanvas.width = 1;
       dummyCanvas.height = 1;
       const dummyStream = dummyCanvas.captureStream();
+      dummyStream.addTrack(dummyAudioTrack);
 
       const call = peer.call(hostId, dummyStream);
 
@@ -103,8 +144,16 @@
         statusBadge.className = 'badge live';
         statusBadge.textContent = '● AO VIVO GLOBAL';
 
-        remoteVideo.play().catch(() => {
-          unmuteBtn.style.display = 'inline-block';
+        // Tenta tocar com som direto
+        remoteVideo.muted = false;
+        remoteVideo.play().then(() => {
+          // Se o navegador aceitou áudio direto sem interação
+          unmuteBtn.style.display = 'none';
+        }).catch(() => {
+          // Bloqueio de autoplay do navegador móvel: toca no mudo e mostra o botão destacado
+          remoteVideo.muted = true;
+          remoteVideo.play();
+          unmuteBtn.style.display = 'flex';
         });
       });
 
@@ -113,24 +162,11 @@
         statusBadge.textContent = 'Transmissão Encerrada';
         overlayMessage.style.display = 'block';
         mainText.textContent = 'A transmissão foi finalizada';
-        subText.textContent = 'O transmissor encerrou o compartilhamento.';
+        subText.textContent = 'O transmissor encerrou a live.';
         remoteVideo.srcObject = null;
+        unmuteBtn.style.display = 'none';
       });
-
-      // Tentativa de reconexão se a sala ainda não tiver iniciado
-      setTimeout(() => {
-        if (!remoteVideo.srcObject) {
-          mainText.textContent = 'Aguardando o transmissor iniciar...';
-          subText.textContent = 'Atualize a página assim que o transmissor clicar em iniciar.';
-        }
-      }, 5000);
     }
-
-    unmuteBtn.onclick = () => {
-      remoteVideo.muted = false;
-      remoteVideo.play();
-      unmuteBtn.style.display = 'none';
-    };
   </script>
 </body>
 </html>
