@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>EDPOLO Live - Transmissão</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <!-- PeerJS WebRTC Global Cloud -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <!-- QRCode Generator -->
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+    body { background-color: #0f172a; color: #f8fafc; display: flex; flex-direction: column; align-items: center; min-height: 100vh; padding: 16px; }
+    .card { background: #1e293b; border-radius: 16px; padding: 24px; max-width: 600px; width: 100%; box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; }
+    
+    .logo-area { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 20px; }
+    .logo-area h1 { font-size: 1.6rem; color: #38bdf8; font-weight: 800; letter-spacing: 1px; }
+
+    .status-pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 16px; border-radius: 9999px; font-weight: 700; font-size: 0.9rem; margin-bottom: 20px; }
+    .status-pill.ready { background: #0369a1; color: #e0f2fe; }
+    .status-pill.live { background: #dc2626; color: white; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+    /* Modos de Transmissão */
+    .source-selection { display: flex; gap: 10px; justify-content: center; margin-bottom: 20px; }
+    .source-btn { background: #334155; color: #cbd5e1; border: 2px solid transparent; padding: 10px 16px; border-radius: 10px; font-weight: 600; cursor: pointer; transition: 0.2s; font-size: 0.95rem; }
+    .source-btn.active { background: #1e293b; border-color: #38bdf8; color: #38bdf8; }
+
+    /* Botão Principal Estilo TikTok / Instagram Live */
+    .btn-main-live {
+      background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+      color: white;
+      border: none;
+      width: 100%;
+      padding: 16px;
+      font-size: 1.25rem;
+      font-weight: 800;
+      border-radius: 14px;
+      cursor: pointer;
+      box-shadow: 0 4px 20px rgba(220, 38, 38, 0.4);
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .btn-main-live:hover { transform: scale(1.02); box-shadow: 0 6px 25px rgba(220, 38, 38, 0.6); }
+    .btn-main-live.stopping { background: #475569; box-shadow: none; }
+
+    /* Preview de Vídeo */
+    .video-box { width: 100%; aspect-ratio: 16 / 9; background: #020617; border-radius: 12px; overflow: hidden; position: relative; border: 1px solid #334155; margin-bottom: 20px; display: flex; align-items: center; justify-content: center; }
+    video { width: 100%; height: 100%; object-fit: contain; }
+    .video-placeholder { color: #64748b; font-size: 0.95rem; }
+
+    /* Área de Compartilhamento */
+    .share-card { background: #0f172a; border-radius: 12px; padding: 18px; border: 1px solid #334155; display: none; flex-direction: column; align-items: center; gap: 14px; }
+    .share-link-row { display: flex; width: 100%; gap: 8px; }
+    .share-link-row input { flex: 1; background: #1e293b; border: 1px solid #475569; color: #38bdf8; padding: 12px; border-radius: 8px; font-size: 0.9rem; font-family: monospace; outline: none; }
+    .btn-copy { background: #10b981; color: white; border: none; padding: 0 20px; border-radius: 8px; font-weight: 700; cursor: pointer; }
+    #qrcode-canvas { background: white; padding: 8px; border-radius: 10px; margin-top: 6px; }
+    .viewers-badge { font-size: 0.95rem; color: #34d399; font-weight: 700; }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <div class="logo-area">
+      <span>📡</span>
+      <h1>EDPOLO LIVE</h1>
+    </div>
+
+    <div id="statusPill" class="status-pill ready">● Conectado ao Servidor Global</div>
+
+    <!-- Escolha entre Câmera do Celular ou Gravar Tela -->
+    <div class="source-selection" id="sourceSelector">
+      <button class="source-btn active" id="btnModeScreen" onclick="setMode('screen')">💻 Gravar Tela do PC</button>
+      <button class="source-btn" id="btnModeCam" onclick="setMode('cam')">📱 Câmera (Celular/PC)</button>
+    </div>
+
+    <!-- Botão Começar Live -->
+    <button id="mainLiveBtn" class="btn-main-live" onclick="toggleLive()">
+      <span>🔴</span> COMEÇAR LIVE
+    </button>
+
+    <!-- Pré-visualização -->
+    <div class="video-box">
+      <div id="placeholderText" class="video-placeholder">Sua transmissão aparecerá aqui</div>
+      <video id="previewVideo" autoplay playsinline muted style="display: none;"></video>
+    </div>
+
+    <!-- Link para quem vai assistir -->
+    <div id="shareCard" class="share-card">
+      <div class="viewers-badge" id="viewersText">👀 Espectadores ao vivo: 0</div>
+      <p style="color: #94a3b8; font-size: 0.9rem;">Mande este link para quem você quer que assista:</p>
+      
+      <div class="share-link-row">
+        <input type="text" id="watchUrl" readonly>
+        <button class="btn-copy" onclick="copyLink()">Copiar</button>
+      </div>
+
+      <div id="qrcode-canvas"></div>
+    </div>
+  </div>
+
+  <script>
+    let currentMode = 'screen'; // 'screen' ou 'cam'
+    let isLive = false;
+    let localStream = null;
+    let peer = null;
+    let activeCalls = [];
+
+    // Sala fixa para o Edpolo
+    const roomId = 'edpolo-live-' + Math.floor(1000 + Math.random() * 9000);
+
+    const statusPill = document.getElementById('statusPill');
+    const mainLiveBtn = document.getElementById('mainLiveBtn');
+    const previewVideo = document.getElementById('previewVideo');
+    const placeholderText = document.getElementById('placeholderText');
+    const shareCard = document.getElementById('shareCard');
+    const watchUrlInput = document.getElementById('watchUrl');
+    const viewersText = document.getElementById('viewersText');
+    const qrcodeCanvas = document.getElementById('qrcode-canvas');
+
+    function setMode(mode) {
+      if (isLive) return;
+      currentMode = mode;
+      document.getElementById('btnModeScreen').className = mode === 'screen' ? 'source-btn active' : 'source-btn';
+      document.getElementById('btnModeCam').className = mode === 'cam' ? 'source-btn active' : 'source-btn';
+    }
+
+    function initPeer() {
+      peer = new Peer(roomId, {
+        debug: 1,
+        config: {
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' }
+          ]
+        }
+      });
+
+      peer.on('open', (id) => {
+        const baseHref = window.location.href.substring(0, window.location.href.lastIndexOf('/'));
+        const watchLink = `${baseHref}/watch.html?room=${id}`;
+        watchUrlInput.value = watchLink;
+
+        QRCode.toCanvas(watchLink, { width: 140, margin: 1 }, (err, canvas) => {
+          if (!err) {
+            qrcodeCanvas.innerHTML = '';
+            qrcodeCanvas.appendChild(canvas);
+          }
+        });
+      });
+
+      peer.on('call', (call) => {
+        if (localStream) {
+          call.answer(localStream);
+          activeCalls.push(call);
+          updateViewers();
+
+          call.on('close', () => {
+            activeCalls = activeCalls.filter(c => c !== call);
+            updateViewers();
+          });
+        }
+      });
+    }
+
+    function updateViewers() {
+      viewersText.textContent = `👀 Espectadores ao vivo: ${activeCalls.length}`;
+    }
+
+    async function toggleLive() {
+      if (!isLive) {
+        await startLive();
+      } else {
+        stopLive();
+      }
+    }
+
+    async function startLive() {
+      try {
+        if (currentMode === 'screen') {
+          // Compartilhar tela
+          const screenStream = await navigator.mediaDevices.getDisplayMedia({
+            video: { frameRate: 30, cursor: 'always' },
+            audio: true
+          });
+
+          // Pega microfone
+          let micStream = null;
+          try {
+            micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          } catch(e) {}
+
+          const tracks = [...screenStream.getVideoTracks()];
+          if (micStream && micStream.getAudioTracks().length > 0) {
+            tracks.push(...micStream.getAudioTracks());
+          } else if (screenStream.getAudioTracks().length > 0) {
+            tracks.push(...screenStream.getAudioTracks());
+          }
+          localStream = new MediaStream(tracks);
+
+          screenStream.getVideoTracks()[0].onended = () => stopLive();
+
+        } else {
+          // Câmera (celular ou webcam) + microfone
+          localStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user' },
+            audio: true
+          });
+        }
+
+        previewVideo.srcObject = localStream;
+        previewVideo.style.display = 'block';
+        placeholderText.style.display = 'none';
+
+        isLive = true;
+        statusPill.className = 'status-pill live';
+        statusPill.textContent = '● AO VIVO AGORA';
+
+        mainLiveBtn.className = 'btn-main-live stopping';
+        mainLiveBtn.innerHTML = '<span>■</span> ENCERRAR LIVE';
+
+        document.getElementById('sourceSelector').style.display = 'none';
+        shareCard.style.display = 'flex';
+
+      } catch (err) {
+        alert('Permissão necessária para acessar a tela/câmera e áudio: ' + err.message);
+      }
+    }
+
+    function stopLive() {
+      if (localStream) {
+        localStream.getTracks().forEach(t => t.stop());
+        localStream = null;
+      }
+      activeCalls.forEach(c => c.close());
+      activeCalls = [];
+      updateViewers();
+
+      previewVideo.style.display = 'none';
+      placeholderText.style.display = 'block';
+
+      isLive = false;
+      statusPill.className = 'status-pill ready';
+      statusPill.textContent = '● Pronto para Começar';
+
+      mainLiveBtn.className = 'btn-main-live';
+      mainLiveBtn.innerHTML = '<span>🔴</span> COMEÇAR LIVE';
+
+      document.getElementById('sourceSelector').style.display = 'flex';
+      shareCard.style.display = 'none';
+    }
+
+    function copyLink() {
+      watchUrlInput.select();
+      navigator.clipboard.writeText(watchUrlInput.value);
+      alert('Link copiado! Envie no WhatsApp ou onde quiser.');
+    }
+
+    initPeer();
+  </script>
+</body>
+</html>

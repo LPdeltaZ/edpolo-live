@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>EDPOLO Live - Assistir Ao Vivo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- PeerJS WebRTC Global Cloud -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
+    body { background-color: #0b1120; color: #f8fafc; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 16px; }
+    .card { background: #131c2e; border-radius: 14px; padding: 20px; max-width: 960px; width: 100%; box-shadow: 0 10px 35px rgba(0,0,0,0.6); }
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    h1 { font-size: 1.3rem; color: #38bdf8; display: flex; align-items: center; gap: 8px; }
+    .badge { padding: 4px 12px; border-radius: 9999px; font-weight: 700; font-size: 0.8rem; }
+    .badge.offline { background: #334155; color: #94a3b8; }
+    .badge.connecting { background: #0284c7; color: white; }
+    .badge.live { background: #dc2626; color: white; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+
+    .player-wrap { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 10px; overflow: hidden; display: flex; justify-content: center; align-items: center; border: 1px solid #1e293b; }
+    video { width: 100%; height: 100%; object-fit: contain; }
+    .overlay { position: absolute; text-align: center; color: #94a3b8; padding: 20px; }
+    .btn-audio { margin-top: 14px; background: #0284c7; color: white; border: none; padding: 12px 22px; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; display: none; }
+    .btn-audio:hover { background: #0369a1; }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <header>
+      <h1><span>📺</span> EDPOLO Live - Ao Vivo</h1>
+      <div id="statusBadge" class="badge connecting">Conectando...</div>
+    </header>
+
+    <div class="player-wrap">
+      <div id="overlayMessage" class="overlay">
+        <p id="mainText" style="font-size: 1.15rem; font-weight: 600; color: #e2e8f0; margin-bottom: 6px;">Procurando transmissão...</p>
+        <span id="subText" style="font-size: 0.85rem; color: #64748b;">Aguardando o transmissor iniciar o compartilhamento de tela.</span>
+      </div>
+      <video id="remoteVideo" autoplay playsinline></video>
+    </div>
+
+    <center>
+      <button id="unmuteBtn" class="btn-audio">🔊 Clique para Ativar o Áudio</button>
+    </center>
+  </div>
+
+  <script>
+    const remoteVideo = document.getElementById('remoteVideo');
+    const statusBadge = document.getElementById('statusBadge');
+    const overlayMessage = document.getElementById('overlayMessage');
+    const mainText = document.getElementById('mainText');
+    const subText = document.getElementById('subText');
+    const unmuteBtn = document.getElementById('unmuteBtn');
+
+    // Extrai o ID da sala pela URL (?room=xyz)
+    const urlParams = new URLSearchParams(window.location.search);
+    const targetRoom = urlParams.get('room');
+
+    if (!targetRoom) {
+      statusBadge.className = 'badge offline';
+      statusBadge.textContent = 'Link Inválido';
+      mainText.textContent = 'Nenhuma sala especificada no link';
+      subText.textContent = 'Peça ao transmissor para enviar o link completo da transmissão.';
+    } else {
+      const peer = new Peer({
+        debug: 1,
+        config: {
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' }
+          ]
+        }
+      });
+
+      peer.on('open', () => {
+        connectToHost(peer, targetRoom);
+      });
+
+      peer.on('error', (err) => {
+        console.error('Peer error:', err);
+        statusBadge.className = 'badge offline';
+        statusBadge.textContent = 'Erro de Conexão';
+      });
+    }
+
+    function connectToHost(peer, hostId) {
+      statusBadge.className = 'badge connecting';
+      statusBadge.textContent = 'Chamando Transmissor...';
+
+      // Cria uma stream falsa em silêncio para iniciar o handshake WebRTC bidirecional
+      const dummyCanvas = document.createElement('canvas');
+      dummyCanvas.width = 1;
+      dummyCanvas.height = 1;
+      const dummyStream = dummyCanvas.captureStream();
+
+      const call = peer.call(hostId, dummyStream);
+
+      call.on('stream', (remoteStream) => {
+        remoteVideo.srcObject = remoteStream;
+        overlayMessage.style.display = 'none';
+        statusBadge.className = 'badge live';
+        statusBadge.textContent = '● AO VIVO GLOBAL';
+
+        remoteVideo.play().catch(() => {
+          unmuteBtn.style.display = 'inline-block';
+        });
+      });
+
+      call.on('close', () => {
+        statusBadge.className = 'badge offline';
+        statusBadge.textContent = 'Transmissão Encerrada';
+        overlayMessage.style.display = 'block';
+        mainText.textContent = 'A transmissão foi finalizada';
+        subText.textContent = 'O transmissor encerrou o compartilhamento.';
+        remoteVideo.srcObject = null;
+      });
+
+      // Tentativa de reconexão se a sala ainda não tiver iniciado
+      setTimeout(() => {
+        if (!remoteVideo.srcObject) {
+          mainText.textContent = 'Aguardando o transmissor iniciar...';
+          subText.textContent = 'Atualize a página assim que o transmissor clicar em iniciar.';
+        }
+      }, 5000);
+    }
+
+    unmuteBtn.onclick = () => {
+      remoteVideo.muted = false;
+      remoteVideo.play();
+      unmuteBtn.style.display = 'none';
+    };
+  </script>
+</body>
+</html>
